@@ -1,8 +1,22 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
+import '@tensorflow/tfjs-backend-cpu';
+
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+import '@tensorflow/tfjs-backend-wasm'; 
+
+// Call this function.
+window.tflite.setWasmPath(
+  'tflite-wasm'
+);
+// tflite.setWasmPath('/public/tflite-wasm');
+
+// tflite.ready().then(async () => {
+//   await tf.setBackend('wasm'); // Set the backend to WASM
+//   console.log('WASM backend is ready!');
+// });
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(

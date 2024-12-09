@@ -23,7 +23,20 @@
       Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
       work correctly both with client-side routing and a non-root public URL.
       Learn how to configure a non-root public URL by running `npm run build`.
-    -->
+    --> 
+    <!-- Import @tensorflow/tfjs-core -->
+<!-- Import @tensorflow/tfjs-core -->
+<!-- <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script> -->
+<!-- Adds the CPU backend -->
+<!-- <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-cpu"></script> -->
+<!--
+  Import @tensorflow/tfjs-tflite
+
+  Note that we need to explicitly load dist/tf-tflite.min.js so that it can
+  locate WASM module files from their default location (dist/).
+-->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/dist/tf-tflite.min.js"></script>
     <title>React App</title>
   </head>
   <body>
