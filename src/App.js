@@ -1,42 +1,13 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useRef } from "react";
 import Webcam from "react-webcam";
 import * as tf from "@tensorflow/tfjs";
-import "@tensorflow/tfjs-backend-wasm";
 
-const App = () => {
-  const [model, setModel] = useState(null);
+const App = ({ model }) => {
   const [totalFishCount, setTotalFishCount] = useState(0);
-  const isRunningRef = useRef(false); // Use a ref to manage running state
+  const isRunningRef = useRef(false); // Use a ref to manage the running state
   const animationFrameIdRef = useRef(null); // Store the animation frame ID
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
-
-  useEffect(() => {
-    const initTF = async () => {
-      window.tflite.setWasmPath("/tflite-wasm/");
-      await tf.setBackend("wasm");
-      await tf.ready();
-      console.log("TensorFlow.js WASM backend is ready!");
-    };
-
-    initTF().catch(console.error);
-  }, []);
-
-  useEffect(() => {
-    const loadModel = async () => {
-      try {
-        const loadedModel = await window.tflite.loadTFLiteModel(
-          "/models/fish_detection/detect.tflite"
-        );
-        setModel(loadedModel);
-        console.log("Model loaded successfully!");
-      } catch (error) {
-        console.error("Error loading model:", error);
-      }
-    };
-
-    loadModel();
-  }, []);
 
   const detectFish = async () => {
     if (!model || !webcamRef.current || !canvasRef.current) return;
@@ -96,12 +67,15 @@ const App = () => {
         }
       }
 
-      // Increment total fish count
-      setTotalFishCount((prevCount) => prevCount + detections.length);
+      // Update fish count efficiently
+      setTotalFishCount(detections.length);
+
+      // Dispose of tensors
+      Object.values(outputs).forEach((tensor) => tf.dispose(tensor));
     } catch (error) {
       console.error("Error during prediction:", error);
     } finally {
-      tf.dispose(imgTensor); // Dispose of tensor to free memory
+      tf.dispose(imgTensor);
     }
   };
 

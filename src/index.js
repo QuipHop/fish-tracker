@@ -1,29 +1,33 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './index.css';
-import '@tensorflow/tfjs-backend-cpu';
+import React from "react";
+import ReactDOM from "react-dom/client";
+import "./index.css";
+import "@tensorflow/tfjs-backend-cpu";
+import "@tensorflow/tfjs-backend-wasm";
+import * as tf from "@tensorflow/tfjs";
+import App from "./App";
+import reportWebVitals from "./reportWebVitals";
 
-import App from './App';
-import reportWebVitals from './reportWebVitals';
-import '@tensorflow/tfjs-backend-wasm'; 
+const initializeTF = async () => {
+  window.tflite.setWasmPath("/tflite-wasm/");
+  await tf.setBackend("wasm"); // Set the backend to WASM
+  await tf.ready();
+  console.log("TensorFlow.js WASM backend is ready!");
 
-// Call this function.
-window.tflite.setWasmPath(
-  'tflite-wasm'
-);
-// tflite.setWasmPath('/public/tflite-wasm');
+  const model = await window.tflite.loadTFLiteModel(
+    "/models/fish_detection/detect.tflite"
+  );
+  console.log("Model loaded successfully!");
+  return model;
+};
 
-// tflite.ready().then(async () => {
-//   await tf.setBackend('wasm'); // Set the backend to WASM
-//   console.log('WASM backend is ready!');
-// });
-
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+initializeTF().then((model) => {
+  const root = ReactDOM.createRoot(document.getElementById("root"));
+  root.render(
+    <React.StrictMode>
+      <App model={model} />
+    </React.StrictMode>
+  );
+});
 
 // If you want to start measuring performance in your app, pass a function
 // to log results (for example: reportWebVitals(console.log))
