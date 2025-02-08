@@ -4,116 +4,112 @@ import * as tf from "@tensorflow/tfjs";
 
 const App = ({ model }) => {
   const [totalFishCount, setTotalFishCount] = useState(0);
-  const isRunningRef = useRef(false); // Use a ref to manage the running state
-  const animationFrameIdRef = useRef(null); // Store the animation frame ID
+  const isRunningRef = useRef(false);
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
+  const detectionIntervalRef = useRef(null);
 
-  const detectFish = async () => {
+  const detectFishFromFrame = async () => {
     if (!model || !webcamRef.current || !canvasRef.current) return;
 
     const video = webcamRef.current.video;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
 
+    // Set canvas dimensions to match video
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const imgTensor = tf.browser
-      .fromPixels(video)
-      .resizeBilinear([320, 320])
-      .expandDims(0)
-      .toFloat()
-      .div(255.0);
+    // Get the image tensor
+    const imgTensor = tf.tidy(
+      () =>
+        tf.browser
+          .fromPixels(video) // Directly from video
+          .resizeBilinear([640, 640])
+          .expandDims(0)
+          .toFloat()
+          .div(255.0) // Normalize
+    );
 
     try {
-      const outputs = await model.predict(imgTensor);
+      const prediction = await model.predict(imgTensor);
 
-      const numDetections = outputs["StatefulPartitionedCall:0"].dataSync()[0];
-      const scores = outputs["StatefulPartitionedCall:1"].dataSync();
-      const boxes = outputs["StatefulPartitionedCall:3"].dataSync();
-      const classes = outputs["StatefulPartitionedCall:2"].dataSync();
+      // Process YOLO predictions
+      const reshaped = prediction.reshape([5, -1]);
+      const boxes = reshaped.slice([0, 0], [4, -1]).transpose();
+      const scores = reshaped.slice([4, 0], [1, -1]).reshape([-1]);
 
-      const confidenceThreshold = 0.5;
-      const labelMap = ["fish"];
-      const detections = [];
+      const nmsIndices = await tf.image.nonMaxSuppressionAsync(
+        boxes,
+        scores,
+        10, // Keep top 10
+        0.7, // IoU threshold
+        0.5 // Score threshold
+      );
 
-      for (let i = 0; i < numDetections; i++) {
-        if (scores[i] > confidenceThreshold) {
-          const ymin = boxes[i * 4 + 0] * video.videoHeight;
-          const xmin = boxes[i * 4 + 1] * video.videoWidth;
-          const ymax = boxes[i * 4 + 2] * video.videoHeight;
-          const xmax = boxes[i * 4 + 3] * video.videoWidth;
+      // Extract boxes and scores
+      const selectedBoxes = tf.gather(boxes, nmsIndices);
+      const selectedScores = tf.gather(scores, nmsIndices);
 
-          detections.push({
-            class: labelMap[classes[i]],
-            confidence: scores[i],
-            bbox: { ymin, xmin, ymax, xmax },
-          });
+      const boxesArray = await selectedBoxes.array();
+      const scoresArray = await selectedScores.array();
 
-          // Draw bounding boxes
-          ctx.strokeStyle = "#00FF00";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(xmin, ymin, xmax - xmin, ymax - ymin);
-          ctx.fillStyle = "#00FF00";
-          ctx.font = "14px Arial";
-          ctx.fillText(
-            `${labelMap[classes[i]]} (${(scores[i] * 100).toFixed(1)}%)`,
-            xmin,
-            ymin > 10 ? ymin - 5 : ymin + 15
-          );
-        }
-      }
-
-      // Update fish count efficiently
-      setTotalFishCount(detections.length);
-
-      // Dispose of tensors
-      Object.values(outputs).forEach((tensor) => tf.dispose(tensor));
+      console.log("boxesArray ", boxesArray);
+      // Map predictions
+      const predictions = boxesArray.map((box, i) => ({
+        x: box[0] * canvas.width,
+        y: box[1] * canvas.height,
+        width: (box[2] - box[0]) * canvas.width,
+        height: (box[3] - box[1]) * canvas.height,
+        confidence: scoresArray[i],
+      }));
+      console.log("predictions ", predictions);
+      // Draw detections
+      drawBoxes(ctx, predictions);
+      setTotalFishCount((prevCount) => prevCount + predictions.length);
     } catch (error) {
       console.error("Error during prediction:", error);
     } finally {
-      tf.dispose(imgTensor);
+      tf.dispose([imgTensor]); // Dispose tensors
     }
   };
 
+  const drawBoxes = (ctx, boxes) => {
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height); // Clear only necessary
+    boxes.forEach(({ x, y, width, height, confidence }) => {
+      ctx.strokeStyle = "limegreen";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, width, height);
+
+      ctx.font = "14px Arial";
+      ctx.fillStyle = "limegreen";
+      ctx.fillText(`Confidence: ${(confidence * 100).toFixed(1)}%`, x, y - 5);
+    });
+  };
+
   const startDetection = () => {
-    if (isRunningRef.current) return; // Prevent multiple loops
+    if (isRunningRef.current) return;
     isRunningRef.current = true;
 
-    const runDetection = async () => {
-      if (!isRunningRef.current) return; // Stop the loop if not running
-      await detectFish();
-      animationFrameIdRef.current = requestAnimationFrame(runDetection); // Continue the loop
-    };
-
-    animationFrameIdRef.current = requestAnimationFrame(runDetection); // Start the loop
+    detectionIntervalRef.current = setInterval(() => {
+      if (isRunningRef.current) detectFishFromFrame();
+    }, 100); // Run detection every 500ms
     console.log("Detection started...");
   };
 
   const stopDetection = () => {
-    if (!isRunningRef.current) return; // Prevent unnecessary calls
-    isRunningRef.current = false; // Mark detection as stopped
+    isRunningRef.current = false;
+    clearInterval(detectionIntervalRef.current);
+    detectionIntervalRef.current = null;
 
-    if (animationFrameIdRef.current) {
-      cancelAnimationFrame(animationFrameIdRef.current); // Stop the loop
-      animationFrameIdRef.current = null; // Clear frame reference
-    }
-
-    // Clear the canvas
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const ctx = canvas.getContext("2d");
-      ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear drawings
-    }
-
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height); // Clear canvas
     console.log("Detection stopped...");
   };
 
   return (
     <div style={styles.container}>
+      <h2>FishAI</h2>
       <div style={styles.videoContainer}>
         <Webcam audio={false} ref={webcamRef} style={styles.webcam} />
         <canvas ref={canvasRef} style={styles.canvas} />
@@ -148,14 +144,6 @@ const styles = {
     width: "640px",
     height: "480px",
   },
-  webcam: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "100%",
-    zIndex: 1,
-  },
   canvas: {
     position: "absolute",
     top: 0,
@@ -163,6 +151,7 @@ const styles = {
     width: "100%",
     height: "100%",
     zIndex: 2,
+    objectFit: "contain", // Ensures correct scaling
     pointerEvents: "none",
   },
   infoContainer: {

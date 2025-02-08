@@ -8,15 +8,15 @@ import App from "./App";
 import reportWebVitals from "./reportWebVitals";
 
 const initializeTF = async () => {
-  window.tflite.setWasmPath("/tflite-wasm/");
+  // window.tflite.setWasmPath("/tflite-wasm/");
   await tf.setBackend("wasm"); // Set the backend to WASM
   await tf.ready();
   console.log("TensorFlow.js WASM backend is ready!");
 
-  const model = await window.tflite.loadTFLiteModel(
-    "/models/fish_detection/detect.tflite"
+  const model = await window.tf.loadGraphModel(
+    "/models/fish_detection/model.json"
   );
-  console.log("Model loaded successfully!");
+  console.log("Model loaded successfully!", model);
   return model;
 };
 
