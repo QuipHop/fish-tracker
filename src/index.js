@@ -9,7 +9,7 @@ import reportWebVitals from "./reportWebVitals";
 
 const initializeTF = async () => {
   // window.tflite.setWasmPath("/tflite-wasm/");
-  await tf.setBackend("wasm"); // Set the backend to WASM
+  await tf.setBackend("webgl"); // Set the backend to WASM
   await tf.ready();
   console.log("TensorFlow.js WASM backend is ready!");
 

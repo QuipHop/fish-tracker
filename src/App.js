@@ -12,70 +12,67 @@ const App = ({ model }) => {
   const detectFishFromFrame = async () => {
     if (!model || !webcamRef.current || !canvasRef.current) return;
 
-    const video = webcamRef.current.video;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
 
-    // Set canvas dimensions to match video
+    // Extract frame from video and draw it on the canvas
+    const video = webcamRef.current.video;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Get the image tensor
+    // Get the frame as a tensor
     const imgTensor = tf.tidy(
       () =>
         tf.browser
-          .fromPixels(video) // Directly from video
-          .resizeBilinear([640, 640])
+          .fromPixels(canvas) // Read from the canvas
+          .resizeBilinear([640, 640]) // Resize to model's expected input
           .expandDims(0)
           .toFloat()
           .div(255.0) // Normalize
     );
 
     try {
-      const prediction = await model.predict(imgTensor);
+      // Perform model prediction
+      const [boxes, scores, classes, valid_detections] =
+        await model.executeAsync(imgTensor);
 
-      // Process YOLO predictions
-      const reshaped = prediction.reshape([5, -1]);
-      const boxes = reshaped.slice([0, 0], [4, -1]).transpose();
-      const scores = reshaped.slice([4, 0], [1, -1]).reshape([-1]);
+      const boxesData = boxes.dataSync();
+      const scoresData = scores.dataSync();
+      const validDetectionsData = valid_detections.dataSync()[0];
 
-      const nmsIndices = await tf.image.nonMaxSuppressionAsync(
-        boxes,
-        scores,
-        10, // Keep top 10
-        0.7, // IoU threshold
-        0.5 // Score threshold
-      );
+      tf.dispose([boxes, scores, classes, valid_detections]);
 
-      // Extract boxes and scores
-      const selectedBoxes = tf.gather(boxes, nmsIndices);
-      const selectedScores = tf.gather(scores, nmsIndices);
+      // Prepare predictions for drawing
+      const predictions = [];
+      for (let i = 0; i < validDetectionsData; ++i) {
+        const [x1, y1, x2, y2] = boxesData.slice(i * 4, (i + 1) * 4);
 
-      const boxesArray = await selectedBoxes.array();
-      const scoresArray = await selectedScores.array();
+        // Add prediction if confidence > threshold (e.g., 0.5)
+        if (scoresData[i] >= 0.2) {
+          predictions.push({
+            x: x1 * canvas.width,
+            y: y1 * canvas.height,
+            width: (x2 - x1) * canvas.width,
+            height: (y2 - y1) * canvas.height,
+            confidence: scoresData[i],
+          });
+        }
+      }
 
-      console.log("boxesArray ", boxesArray);
-      // Map predictions
-      const predictions = boxesArray.map((box, i) => ({
-        x: box[0] * canvas.width,
-        y: box[1] * canvas.height,
-        width: (box[2] - box[0]) * canvas.width,
-        height: (box[3] - box[1]) * canvas.height,
-        confidence: scoresArray[i],
-      }));
-      console.log("predictions ", predictions);
-      // Draw detections
+      // Draw predictions on canvas
       drawBoxes(ctx, predictions);
-      setTotalFishCount((prevCount) => prevCount + predictions.length);
+
+      // Update total fish count
     } catch (error) {
       console.error("Error during prediction:", error);
     } finally {
-      tf.dispose([imgTensor]); // Dispose tensors
+      tf.dispose(imgTensor);
     }
   };
 
   const drawBoxes = (ctx, boxes) => {
-    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height); // Clear only necessary
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height); // Clear the canvas
     boxes.forEach(({ x, y, width, height, confidence }) => {
       ctx.strokeStyle = "limegreen";
       ctx.lineWidth = 2;
@@ -91,9 +88,11 @@ const App = ({ model }) => {
     if (isRunningRef.current) return;
     isRunningRef.current = true;
 
+    // Process a frame every 500ms
     detectionIntervalRef.current = setInterval(() => {
       if (isRunningRef.current) detectFishFromFrame();
-    }, 100); // Run detection every 500ms
+    }, 300);
+
     console.log("Detection started...");
   };
 
@@ -114,10 +113,7 @@ const App = ({ model }) => {
         <Webcam audio={false} ref={webcamRef} style={styles.webcam} />
         <canvas ref={canvasRef} style={styles.canvas} />
       </div>
-      <div style={styles.infoContainer}>
-        <h3>Total Fish Count: {totalFishCount}</h3>
-      </div>
-      <div style={styles.buttonContainer}>
+      <div style={styles.controls}>
         <button onClick={startDetection} style={styles.button}>
           Start Detection
         </button>
@@ -125,22 +121,21 @@ const App = ({ model }) => {
           Stop Detection
         </button>
       </div>
+      <h3>Total Fish Count: {totalFishCount}</h3>
     </div>
   );
 };
 
 const styles = {
   container: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    width: "100vw",
-    height: "100vh",
-    backgroundColor: "#f5f5f5",
+    textAlign: "center",
+    fontFamily: "Arial, sans-serif",
   },
   videoContainer: {
     position: "relative",
+    display: "inline-block",
+  },
+  webcam: {
     width: "640px",
     height: "480px",
   },
@@ -148,29 +143,16 @@ const styles = {
     position: "absolute",
     top: 0,
     left: 0,
-    width: "100%",
-    height: "100%",
-    zIndex: 2,
-    objectFit: "contain", // Ensures correct scaling
-    pointerEvents: "none",
+    width: "640px",
+    height: "480px",
   },
-  infoContainer: {
-    marginTop: "10px",
-    fontSize: "18px",
-    color: "#333",
-  },
-  buttonContainer: {
-    marginTop: "20px",
-    display: "flex",
-    gap: "20px",
+  controls: {
+    margin: "20px 0",
   },
   button: {
     padding: "10px 20px",
+    margin: "0 10px",
     fontSize: "16px",
-    backgroundColor: "#007bff",
-    color: "#fff",
-    border: "none",
-    borderRadius: "5px",
     cursor: "pointer",
   },
 };
